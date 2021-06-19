@@ -4,8 +4,6 @@ import re
 
 def get_and_conv_user_input(eqIn=None):
     def clean_eq(eqs):
-        import re
-
         ansList = []
         eqs = eqs.replace(" ", "")
         splited = re.split(r'[=><]+', eqs)
@@ -215,6 +213,7 @@ def choose_pivot(type_of_simplex, matrix, *args, **kwargs):
         #     except:
         #         if val_idx==len(sort_i)-1: raise("failed to choose j")
         return i, j
+    if type_of_simplex=="bigM": type_of_simplex="simplex"
     try:
         return eval("choose_pivot_"+type_of_simplex+"(matrix, *args, **kwargs)")
     except: return None,None
@@ -246,6 +245,14 @@ def print_table(tabel, rowN, colN, ii=None,jj=None, lnn=9):
     print(row_format.format(*printableTable[0]))
     for i, row in enumerate(printableTable[1:]):
         rr=[round(r,3) for r in row[1:]]
+        if simp_type=="bigM":
+            for i,r in enumerate(rr):
+                m_multi=0
+                if abs(r)>10**9: m_multi=r//10 ** 16
+                r=((r + 10 ** 9) % 10 ** 16) - 10 ** 9
+                rr[i]=(str(r) if r!=0 else "")+\
+                      ((str(int(m_multi)) if r!=1 else "")+"*M" if m_multi!=0 else "")
+
         rr.insert(0, row[0])
         if i==ii:
             rr[jj+1]=" "*(lnn-3) +"\033[1m" + str(rr[jj+1]) + "\033[0m"
@@ -262,6 +269,7 @@ def print_final_var(matrix, colN, rowN):
         final_var_list["z"]=final_var_list["-z"]
         final_var_list.pop("-z")
     print(final_var_list)
+    return final_var_list
 
 
 def print_dual(equations, sign_cons):
@@ -317,8 +325,7 @@ def print_dual(equations, sign_cons):
 
 
 def phase_one_twoPhase(table, colNames, rowNames):
-    from re import match
-    w_0 = [-1 if match("R[1-]", v) else 0 for v in colNames]
+    w_0 = [-1 if re.match("R[1-]", v) else 0 for v in colNames]
     table = np.array([np.array(w_0), *table])
     rowNames = ["w0"] + rowNames
 
@@ -335,26 +342,37 @@ def phase_one_twoPhase(table, colNames, rowNames):
         rowNames[ii] = colNames[jj]
 
     table = table[1:]
-    r1 = [i for i, v in enumerate(colNames) if match("R[1-]", v)]
+    r1 = [i for i, v in enumerate(colNames) if re.match("R[1-]", v)]
     r2 = min(r1); r1 = min(r1)
     for i in range(r1, r2 + 1): table = np.delete(table, r1, 1)
     rowNames.pop(0)
-    colNames = [v for v in colNames if not match("R[1-]", v)]
+    colNames = [v for v in colNames if not re.match("R[1-]", v)]
+
+    w_0=print_final_var(table, colNames, rowNames)["w0"]
+    if w_0!=0:
+        print("w0 is not zero, so no possible solution")
+        exit()
+
     return table, colNames, rowNames
 
 
 if __name__=="__main__":
     global simp_type
     simp_type = input("what type of simplex do you want? \n (example: dual, simplex, twoPhase)\n")
-    simp_type = {"si": "simplex", "du": "dual", "tw": "twoPhase", "de": "debug"}[simp_type[:2]]
+    simp_type = {"si": "simplex", "no": "simplex", "du": "dual", "tw": "twoPhase",
+                 "bi": "bigM","de": "debug"}[simp_type[:2].lower()]
     print("chosen type: ", simp_type)
 
     equations, sign_constraint, is_min = get_and_conv_user_input()
     table, rowNames, colNames = create_table(equations, is_min)
 
-    if simp_type=="dual": print_dual(equations, sign_constraint)
+    if simp_type=="bigM":
+        table[0]=[a if not re.match("R[1-]", v) else -10**16 for a,v in zip(table[0], colNames)]
 
-    if simp_type=="twoPhase":
+    if simp_type=="dual":
+        print_dual(equations, sign_constraint)
+
+    elif simp_type=="twoPhase":
         simp_type="simplex"
         print("****Phase 1*******")
         table, colNames, rowNames = phase_one_twoPhase(table, colNames, rowNames)
