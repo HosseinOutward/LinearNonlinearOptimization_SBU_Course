@@ -68,7 +68,8 @@ def get_and_conv_user_input(eqIn=None):
             #["max(z)=14*x1+18*x2", "-x1+3*x2<=6", "7*x1+x2<=35"]]
             break
         try: equations.append(clean_eq(eqIn))
-        except: print("Inavild Input, try again")
+        except:
+            if eqIn!="": print("Invalid Input, try again")
 
     log_pretabels = True if simp_type=="debug" else False
     if log_pretabels:
@@ -78,8 +79,8 @@ def get_and_conv_user_input(eqIn=None):
     # convert equ to dict to be used later
     flag=False;is_min=False
     for i,a in enumerate(equations):
-        if "max" in a["signOfEq"]: equations[i]["signOfEq"]=">";flag=True
-        elif "min" in a["signOfEq"]: equations[i]["signOfEq"]="<";flag=True;is_min=True
+        if "max" in a["signOfEq"].lower(): equations[i]["signOfEq"]=">";flag=True
+        elif "min" in a["signOfEq"].lower(): equations[i]["signOfEq"]="<";flag=True;is_min=True
         equations[i] = standardize_eq(a)
         if flag: equations[i]["signOfEq"]="max"; flag=False
 
@@ -235,7 +236,7 @@ def matrix_reduction(matrix, ii, jj, n_v=False):
     return matrix
 
 
-def print_table(tabel, rowN, colN, ii=None,jj=None, lnn=9):
+def print_table(tabel, rowN, colN, ii=None,jj=None, lnn=11):
     print("********************")
     printableTable=[["_", *colN]]
     for i, row in enumerate(tabel):
@@ -245,13 +246,18 @@ def print_table(tabel, rowN, colN, ii=None,jj=None, lnn=9):
     print(row_format.format(*printableTable[0]))
     for i, row in enumerate(printableTable[1:]):
         rr=[round(r,3) for r in row[1:]]
+
         if simp_type=="bigM":
             for i,r in enumerate(rr):
                 m_multi=0
-                if abs(r)>10**9: m_multi=r//10 ** 16
-                r=((r + 10 ** 9) % 10 ** 16) - 10 ** 9
-                rr[i]=(str(r) if r!=0 else "")+\
-                      ((str(int(m_multi)) if r!=1 else "")+"*M" if m_multi!=0 else "")
+                if abs(r)>10**9: m_multi=r//10 ** 15
+                r=((r + 10 ** 9) % 10 ** 15) - 10 ** 9
+                rr[i]=(str(r) if r!=0 or m_multi==0 else "")
+                if m_multi!=0:
+                    rr[i]+=("+" if m_multi>0 else "-")
+                    rr[i]+=(str(abs(m_multi)) if m_multi!=1 else "")
+                    if m_multi!=1: rr[i]+="*"
+                    rr[i]+="M"
 
         rr.insert(0, row[0])
         if i==ii:
@@ -302,12 +308,14 @@ def print_dual(equations, sign_cons):
         new_eq["sumOfEq"]=c[idx]
         dual_eqs.append(new_eq)
 
-
     print("min y0=", end="")
     for k, v in zip(list(dual_eqs[0])[:-2],list(dual_eqs[0].values())[:-2]):
         if v==1: v="+"
         elif v==-1: v="-"
-        print(str(v)+"*"+k, end="")
+        elif v>0: v="+"+str(v)+"*"
+        elif v<0: v=str(v)+"*"
+        elif v==0: continue
+        print(str(v)+k, end="")
     print("")
     for i, eq in enumerate(dual_eqs[1:]):
         for k, v in zip(list(eq)[:-2],list(eq.values())[:-2]):
@@ -341,6 +349,8 @@ def phase_one_twoPhase(table, colNames, rowNames):
         table = matrix_reduction(table, ii, jj)
         rowNames[ii] = colNames[jj]
 
+    w_0=print_final_var(table, colNames, rowNames)["w0"]
+
     table = table[1:]
     r1 = [i for i, v in enumerate(colNames) if re.match("R[1-]", v)]
     r2 = min(r1); r1 = min(r1)
@@ -348,7 +358,6 @@ def phase_one_twoPhase(table, colNames, rowNames):
     rowNames.pop(0)
     colNames = [v for v in colNames if not re.match("R[1-]", v)]
 
-    w_0=print_final_var(table, colNames, rowNames)["w0"]
     if w_0!=0:
         print("w0 is not zero, so no possible solution")
         exit()
@@ -358,7 +367,7 @@ def phase_one_twoPhase(table, colNames, rowNames):
 
 if __name__=="__main__":
     global simp_type
-    simp_type = input("what type of simplex do you want? \n (example: dual, simplex, twoPhase)\n")
+    simp_type = input("what type of simplex do you want? \n (example: Simplex, Dual, Two Phase, big M)\n")
     simp_type = {"si": "simplex", "no": "simplex", "du": "dual", "tw": "twoPhase",
                  "bi": "bigM","de": "debug"}[simp_type[:2].lower()]
     print("chosen type: ", simp_type)
@@ -367,7 +376,7 @@ if __name__=="__main__":
     table, rowNames, colNames = create_table(equations, is_min)
 
     if simp_type=="bigM":
-        table[0]=[a if not re.match("R[1-]", v) else -10**16 for a,v in zip(table[0], colNames)]
+        table[0]=[a if not re.match("R[1-]", v) else -10**15 for a,v in zip(table[0], colNames)]
 
     if simp_type=="dual":
         print_dual(equations, sign_constraint)
@@ -382,8 +391,11 @@ if __name__=="__main__":
     while loop_flag:
         ii, jj = choose_pivot(simp_type, table)
         print_table(table, rowNames, colNames, ii, jj)
-        if ii == None: break
+        if ii == None or jj==None: break
         table = matrix_reduction(table, ii, jj)
         rowNames[ii] = colNames[jj]
+    if ii!=jj: print("no optimal solution exists")
+
+    if simp_type=="bigM":table=((table + 10 ** 9) % 10 ** 15) - 10 ** 9
 
     print_final_var(table, colNames, rowNames)
